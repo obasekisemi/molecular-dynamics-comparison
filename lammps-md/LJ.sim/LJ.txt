@@ -1,0 +1,86 @@
+# LAMMPS input script for Lennard-Jones fluid simulation
+# Equivalent to Python MD code
+
+# --- INITIALIZATION ---
+units           lj        # Use Lennard-Jones reduced units
+dimension       3         # 3D simulation
+boundary        p p p     # Periodic boundary conditions in all directions
+atom_style      atomic    # Simple atomic particles with no internal structure
+
+# --- SYSTEM DEFINITION ---
+# Create simulation box
+region          box block 0 10 0 10 0 10    # Box size: 10*sigma in all directions
+create_box      1 box                       # Single atom type
+
+# Create atoms (random positions)
+create_atoms    1 random 100 341341 box     # 100 atoms with random seed
+
+# Define mass for atom type 1 (required by LAMMPS)
+mass            1 1.0                       # Mass in LJ units
+                                          
+# --- FORCE FIELD ---
+# Define LJ potential parameters (epsilon=1.0, sigma=1.0)
+pair_style      lj/cut 2.5                  # LJ with 2.5*sigma cutoff
+pair_coeff      1 1 1.0 1.0                 # epsilon=1.0, sigma=1.0 for type 1-1 interactions
+pair_modify     shift yes                   # Shift potential to ensure energy is continuous at cutoff
+
+# --- SETTINGS AND INITIALIZATION ---
+# Need to minimize first to avoid initial overlaps
+minimize        1.0e-4 1.0e-6 1000 10000
+
+# Define initial velocities
+velocity        all create 300.0 4928459 dist gaussian mom yes rot yes   # Random velocities at T=300
+                                                                         # Removes center of mass motion
+
+# Define integrator and time step
+timestep        0.0001    # Time step of 1.0E-4 
+
+# Define neighbor list parameters
+neighbor        0.3 bin   # Default skin distance
+neigh_modify    delay 0 every 1 check yes
+
+# --- OUTPUT SETTINGS ---
+# Define thermodynamic output 
+thermo_style    custom step temp press vol pe ke etotal
+thermo          10        # Output every 10 steps 
+
+# Define trajectory output 
+dump            xyz all xyz 10 trajectory.xyz
+dump_modify     xyz element X
+
+# Define custom output for energies (similar to kpe.out in Python)
+variable        k_avg equal ke/atoms
+variable        p_avg equal pe/atoms
+variable        etot_avg equal (ke+pe)/atoms
+fix             energy all print 10 "$(step) $(v_k_avg) $(v_p_avg) $(v_etot_avg)" file energy.dat screen no
+
+# --- EQUILIBRATION AND PRODUCTION ---
+# Define temperature control (NVT ensemble) with careful warm-up
+fix             nvt all nvt temp 1.0 300.0 0.1  # Start cool and warm up to T=300
+
+# Run a short warm-up first
+run             100
+
+# Continue with constant temperature
+unfix           nvt
+fix             nvt all nvt temp 300.0 300.0 0.1  # Target T=300, damping parameter 0.1
+
+# Run the simulation for 900 more steps
+run             900
+
+# --- FINALIZATION ---
+# Print final averages
+variable        avg_temp equal temp
+variable        avg_press equal press
+variable        avg_ke equal ke/atoms
+variable        avg_pe equal pe/atoms
+variable        avg_etot equal (ke+pe)/atoms
+print           "Final Averages:"
+print           "Temperature: $(v_avg_temp)"
+print           "Kinetic Energy: $(v_avg_ke)"
+print           "Potential Energy: $(v_avg_pe)"
+print           "Total Energy: $(v_avg_etot)"
+print           "Pressure: $(v_avg_press)"
+
+# End simulation
+print           "Simulation completed!"
